@@ -1,0 +1,26 @@
+{
+  "type": "record",
+  "name": "PurchaseEvent",
+  "namespace": "com.workshop.sales",
+  "fields": [
+    {"name": "user_id", "type": "string"},
+    {"name": "transaction_id", "type": "string"},
+    {"name": "timestamp", "type": "string"},
+    {"name": "total_amount", "type": "float"},
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "Item",
+          "fields": [
+            {"name": "item_id", "type": "string"},
+            {"name": "price", "type": "float"},
+            {"name": "quantity", "type": "int"}
+          ]
+        }
+      }
+    }
+  ]
+}

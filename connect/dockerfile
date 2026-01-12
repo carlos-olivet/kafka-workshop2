@@ -1,0 +1,6 @@
+FROM confluentinc/cp-kafka-connect:7.6.0
+
+# Install Mongo, Snowflake, and S3 connectors
+RUN confluent-hub install --no-prompt mongodb/kafka-connect-mongodb:latest \
+    && confluent-hub install --no-prompt snowflakeinc/snowflake-kafka-connector:latest \
+    && confluent-hub install --no-prompt confluentinc/kafka-connect-s3:latest
