@@ -14,8 +14,8 @@ def generate_payload(malformed=False):
     return {
         "user_id": f"user_{random.randint(1, 100)}",
         "transaction_id": str(uuid.uuid4()),
-        "timestamp": datetime.now().isoformat(),
-        "store_id": "store_LDN_01",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "store_id": f"store_LDN_{random.randint(1, 5)}",
         "total_amount": round(random.uniform(10.0, 500.0), 2),
         "items": [
             {

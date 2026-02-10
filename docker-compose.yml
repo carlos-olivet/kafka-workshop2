@@ -120,28 +120,57 @@ services:
   # --- Apache Flink ---
   # This is an UI for Flink
   jobmanager:
-    image: flink:1.17
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM flink:1.20.0
+
+        #
+        # Add additional connectors not included in the default Flink image
+        #
+
+        # Kafka connectors
+        RUN wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar
+        RUN wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-avro-confluent-registry/1.20.0/flink-sql-avro-confluent-registry-1.20.0.jar
+        RUN wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-avro/1.20.0/flink-sql-avro-1.20.0.jar
     ports:
-      - "8082:8081"
+      - "8085:8081"
+    container_name: jobmanager
     command: jobmanager
+    volumes:
+      - ./flink/sql:/opt/flink/sql
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
 
   taskmanager:
-    image: flink:1.17
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM flink:1.20.0
+
+        #
+        # Add additional connectors not included in the default Flink image
+        #
+
+        # Kafka connectors
+        RUN wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar
+        RUN wget -P /opt/flink/lib/ https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-avro-confluent-registry/1.20.0/flink-sql-avro-confluent-registry-1.20.0.jar
+        RUN wget -P /opt/flink/lib/ https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-avro/1.20.0/flink-sql-avro-1.20.0.jar
     depends_on: [jobmanager]
     command: taskmanager
+    container_name: taskmanager
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
-        taskmanager.numberOfTaskSlots: 2
+        taskmanager.numberOfTaskSlots: 4
 
   # --- UI & Storage ---
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
     ports:
       - "8080:8080"
     depends_on: [broker-1, schema-registry, kafka-connect]
@@ -154,6 +183,7 @@ services:
 
   mongodb:
     image: mongo:6.0
+    container_name: mongodb
     ports:
       - "27017:27017"
 
@@ -167,6 +197,7 @@ services:
       - "8084:8081"  # Mapped to 8084 to avoid conflict with Schema Registry
     environment:
       ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
+      ME_CONFIG_BASICAUTH: "false"
     depends_on:
       - mongodb
 

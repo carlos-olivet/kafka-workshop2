@@ -9,9 +9,6 @@ class Item(BaseModel):
 
 class PurchaseEvent(BaseModel):
     user_id: str
-    # # Uncomment on part 2
-    # # New field added as backwards compatible
-    # promotion_code: Optional[str] = None
     transaction_id: str
     timestamp: str
     store_id: str
