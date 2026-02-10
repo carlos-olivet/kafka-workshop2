@@ -73,7 +73,7 @@ wait_for_service "http://localhost:8081" "Schema Registry"
 wait_for_service "http://localhost:8083" "Kafka Connect"
 wait_for_service "http://localhost:8084" "Mongo Express"
 wait_for_service "http://localhost:8085" "Flink Dashboard"
-wait_for_service "http://localhost:8000/docs" "Sales API"
+
 
 # 3. Deploy Schema (The CI/CD Simulation)
 echo -e "\n${YELLOW}[Step 2/7] Deploying Schema to Registry...${NC}"
