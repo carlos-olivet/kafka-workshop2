@@ -111,6 +111,7 @@ services:
       CONNECT_CONFIG_STORAGE_TOPIC: "connect-configs"
       CONNECT_OFFSET_STORAGE_TOPIC: "connect-offsets"
       CONNECT_STATUS_STORAGE_TOPIC: "connect-status"
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
       CONNECT_KEY_CONVERTER: "io.confluent.connect.avro.AvroConverter"
       CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
       CONNECT_VALUE_CONVERTER: "io.confluent.connect.avro.AvroConverter"
@@ -124,6 +125,14 @@ services:
       context: .
       dockerfile_inline: |
         FROM flink:1.20.0
+
+        # Install Python runtime needed by PyFlink jobs.
+        RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip && rm -rf /var/lib/apt/lists/*
+        RUN ln -sf /usr/bin/python3 /usr/bin/python
+        # Flink image already contains PyFlink/Beam runtime; add only missing Python deps.
+        RUN pip3 install --no-cache-dir protobuf googleapis-common-protos avro-python3 crcmod grpcio apache-beam==2.48.0
+        RUN python3 -c "import zipfile; zipfile.ZipFile('/opt/flink/opt/python/pyflink.zip').extractall('/opt/flink/opt/python')"
+        RUN chmod +x /opt/flink/opt/python/pyflink/bin/*.sh
 
         #
         # Add additional connectors not included in the default Flink image
@@ -139,7 +148,9 @@ services:
     command: jobmanager
     volumes:
       - ./flink/sql:/opt/flink/sql
+      - ./flink/test-application:/opt/flink/test-application
     environment:
+      - PYTHONPATH=/opt/flink/opt/python:/opt/flink/opt/python/pyflink:/opt/flink/opt/python/py4j-0.10.9.7-src.zip:/opt/flink/opt/python/cloudpickle-2.2.0-src.zip
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
@@ -149,6 +160,14 @@ services:
       context: .
       dockerfile_inline: |
         FROM flink:1.20.0
+
+        # Install Python runtime needed by PyFlink jobs.
+        RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip && rm -rf /var/lib/apt/lists/*
+        RUN ln -sf /usr/bin/python3 /usr/bin/python
+        # Flink image already contains PyFlink/Beam runtime; add only missing Python deps.
+        RUN pip3 install --no-cache-dir protobuf googleapis-common-protos avro-python3 crcmod grpcio apache-beam==2.48.0
+        RUN python3 -c "import zipfile; zipfile.ZipFile('/opt/flink/opt/python/pyflink.zip').extractall('/opt/flink/opt/python')"
+        RUN chmod +x /opt/flink/opt/python/pyflink/bin/*.sh
 
         #
         # Add additional connectors not included in the default Flink image
@@ -161,7 +180,10 @@ services:
     depends_on: [jobmanager]
     command: taskmanager
     container_name: taskmanager
+    volumes:
+      - ./flink/test-application:/opt/flink/test-application
     environment:
+      - PYTHONPATH=/opt/flink/opt/python:/opt/flink/opt/python/pyflink:/opt/flink/opt/python/py4j-0.10.9.7-src.zip:/opt/flink/opt/python/cloudpickle-2.2.0-src.zip
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager

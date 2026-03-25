@@ -21,6 +21,8 @@ kafka-workshop-2/
 │   └── snowflake-sink.json      # Configuration for Snowflake Sink (not set up here as it requires a real Snowflake account)
 ├── docker-compose.yml           # The main infrastructure definition
 ├── flink/
+│   ├── test-application/
+│   │   └── main.py               # PyFlink DataStream job: uppercase topic-to-topic relay
 │   └── sql/
 │       └── store_aggregation.sql  # Flink SQL job for aggregating store revenue
 ├── python_consumer/
@@ -64,6 +66,7 @@ The system architecture is defined in the [docker-compose.yml](docker-compose.ym
 
 - **Stream Processing:**
   - **Apache Flink:** Processes sales events in real-time, performing windowed aggregations and writing results back to Kafka.
+  - **PyFlink Uppercase Job:** A detached Python DataStream job that reads from `poc_raw_sale_events` and writes uppercase strings to `poc_transformed_sale_events`.
 
 - **Governance:**
   - **Kafka UI:** Provides a web interface to monitor Kafka topics, messages, and partitions.
@@ -78,6 +81,38 @@ This repo is set up for anyone to be able to easily spin up all the neded infras
 ./setup.sh
 ```
 
+## Setup lifecycle (what setup.sh does)
+
+`setup.sh` now follows a deterministic production-like deployment order:
+
+1. Starts/rebuilds infrastructure with Docker Compose.
+2. Waits for core services to be healthy (Kafka UI, Schema Registry, Kafka Connect, Mongo Express, Flink UI).
+3. Deploys Avro schema and restarts Sales API.
+4. Creates required Kafka topics (including `poc_raw_sale_events` and `poc_transformed_sale_events`).
+5. Deploys connectors idempotently:
+  - Mongo connector always checked/deployed.
+  - Snowflake connector deployed only when `ENABLE_SNOWFLAKE_CONNECTOR=true` and credentials are present.
+6. Submits Flink SQL job from `flink/sql/store_aggregation.sql`.
+7. Submits PyFlink uppercase job in detached mode from `flink/test-application/main.py`.
+
+SQL and PyFlink jobs are both kept and run together on every setup. Ordering is fixed: SQL submission first, then PyFlink submission.
+
+### Idempotent reruns
+
+- Connector creation is rerun-safe: existing connectors are detected and skipped.
+- PyFlink submission is rerun-safe: existing running job is skipped by default.
+- To force redeploy the PyFlink job on setup reruns:
+
+```bash
+FORCE_PYFLINK_REDEPLOY=true ./setup.sh
+```
+
+- To enable Snowflake connector deployment (still gated by credential presence in connector config):
+
+```bash
+ENABLE_SNOWFLAKE_CONNECTOR=true ./setup.sh
+```
+
 The following section breaks down the file so users can also understand each step of the following 
 
 ## Setup.sh — step-by-step mapping (snippets and explanation)
@@ -89,10 +124,10 @@ Note: the code snippets are taken from setup.sh and grouped by the script's logi
 wait_for_service() {
     local url=$1
     local name=$2
-    local max_retries=30
+  local max_retries=${3:-30}
     local count=0
     echo -n "Waiting for $name..."
-    until curl --output /dev/null --silent --head --fail "$url"; do
+  until curl --output /dev/null --silent --show-error --fail "$url"; do
         printf '.'
         count=$((count+1))
         if [ $count -ge $max_retries ]; then
@@ -181,11 +216,10 @@ Purpose: create topics required by producer, Flink job, and sinks.
 ### Step 7 — Deploy Kafka Connect connectors (Mongo + optional Snowflake)
 Mongo deploy with idempotency check:
 ```bash
-EXISTING_CONNECTORS=$(curl -s "http://localhost:8083/connectors")
-if [[ $EXISTING_CONNECTORS == *"mongo-sink"* ]]; then
+if get_connectors | grep -q '"mongo-sink-sales"'; then
     echo -e " ${YELLOW}Already exists (Skipping)${NC}"
 else
-    response=$(curl -s -X POST -H "Content-Type: application/json" --data @connect/mongo-sink.json http://localhost:8083/connectors)
+  response=$(curl --silent --show-error --fail -X POST -H "Content-Type: application/json" --data @connect/mongo-sink.json http://localhost:8083/connectors)
     if [[ $response == *"error_code"* ]]; then
         echo -e " ${RED}Failed!${NC} $response"
     else
@@ -195,10 +229,12 @@ fi
 ```
 Snowflake conditional deploy:
 ```bash
-if grep -q "YOUR_SNOWFLAKE_URL" connect/snowflake-sink.json; then
-    echo -e "${YELLOW}Skipping Snowflake (Credentials not set in connect/snowflake-sink.json)${NC}"
+if [[ "${ENABLE_SNOWFLAKE_CONNECTOR}" != "true" ]]; then
+  echo -e "${YELLOW}Skipping Snowflake (set ENABLE_SNOWFLAKE_CONNECTOR=true to enable)${NC}"
+elif ! snowflake_credentials_present; then
+  echo -e "${YELLOW}Skipping Snowflake (missing snowflake.private.key)${NC}"
 else
-    curl -s -X POST -H "Content-Type: application/json" --data @connect/snowflake-sink.json http://localhost:8083/connectors > /dev/null
+  deploy_connector_if_missing "kafka-sink-sales2" "connect/snowflake-sink.json"
 fi
 ```
 Purpose: deploy Sink connectors for Mongo and Snowflake; Snowflake is skipped when placeholders are present.
@@ -210,6 +246,57 @@ Purpose: deploy Sink connectors for Mongo and Snowflake; Snowflake is skipped wh
 docker exec -t jobmanager ./bin/sql-client.sh -f /opt/flink/sql/store_aggregation.sql
 ```
 Purpose: Create Flink SQL Task that aggregates sales and writes output to `store_revenue_output`.
+
+---
+
+### Step 9 — Submit PyFlink uppercase job (detached)
+```bash
+docker exec -t jobmanager env \
+  PYFLINK_CLIENT_EXECUTABLE=python3 \
+  PYTHONPATH=/opt/flink/opt/python:/opt/flink/opt/python/pyflink:/opt/flink/opt/python/py4j-0.10.9.7-src.zip:/opt/flink/opt/python/cloudpickle-2.2.0-src.zip \
+  ./bin/flink run -d -py /opt/flink/test-application/main.py
+```
+Purpose: deploy the long-running Python Flink job that consumes plain strings from `poc_raw_sale_events`, uppercases them, and publishes to `poc_transformed_sale_events`.
+
+## Verify both Flink jobs independently
+
+List all running Flink jobs:
+
+```bash
+docker exec -t jobmanager ./bin/flink list --running
+```
+
+Verify the SQL job is running:
+
+```bash
+docker exec -t jobmanager ./bin/flink list --running | grep -i "store_aggregation"
+```
+
+Verify the PyFlink uppercase job is running:
+
+```bash
+docker exec -t jobmanager ./bin/flink list --running | grep -F "Kafka to Kafka Uppercase Application"
+```
+
+Verify POC topics exist:
+
+```bash
+docker exec -t broker-1 kafka-topics --bootstrap-server broker-1:9092 --list | grep -E "poc_raw_sale_events|poc_transformed_sale_events"
+```
+
+Produce test records and validate uppercase flow end-to-end:
+
+```bash
+docker exec -it broker-1 kafka-console-producer --bootstrap-server broker-1:9092 --topic poc_raw_sale_events
+```
+
+In a second terminal:
+
+```bash
+docker exec -it broker-1 kafka-console-consumer --bootstrap-server broker-1:9092 --topic poc_transformed_sale_events --from-beginning
+```
+
+Type lowercase messages in producer; consumer output should be uppercase.
 
 ---
 
@@ -259,6 +346,17 @@ docker volume prune -f
 
 ```bash
 docker-compose up -d --build --no-deps sales-api
+```
+
+- Check running Flink jobs:
+```bash
+docker exec -t jobmanager ./bin/flink list --running
+```
+
+- Test the uppercase pipeline end-to-end:
+```bash
+docker exec -it broker-1 kafka-console-producer --bootstrap-server broker-1:9092 --topic poc_raw_sale_events
+docker exec -it broker-1 kafka-console-consumer --bootstrap-server broker-1:9092 --topic poc_transformed_sale_events --from-beginning
 ```
 
 ---

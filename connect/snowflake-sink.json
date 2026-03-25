@@ -1,20 +1,28 @@
 {
-    "name": "snowflake-sink-sales",
-    "config": {
-      "connector.class": "com.snowflake.kafka.connector.SnowflakeSinkConnector",
-      "tasks.max": "1",
-      "topics": "raw_sale_events_topic",
-      "buffer.count.records": "100",
-      "buffer.flush.time": "60",
-      "buffer.size.bytes": "5000000",
-      "snowflake.url.name": "YOUR_SNOWFLAKE_URL", 
-      "snowflake.user.name": "YOUR_USERNAME",
-      "snowflake.private.key": "YOUR_PRIVATE_KEY",
-      "snowflake.database.name": "SALES_DB",
-      "snowflake.schema.name": "PUBLIC",
-      "key.converter": "io.confluent.connect.avro.AvroConverter",
-      "key.converter.schema.registry.url": "http://schema-registry:8081",
-      "value.converter": "io.confluent.connect.avro.AvroConverter",
-      "value.converter.schema.registry.url": "http://schema-registry:8081"
-    }
+  "name": "kafka-sink-sales2",
+  "config": {
+    "connector.class": "com.snowflake.kafka.connector.SnowflakeSinkConnector",
+    "snowflake.topic2table.map": "poc_raw_sale_events:KAFKA_POC_RAW_SALES,poc_malformed_sale_events:KAFKA_POC_RAW_SALES_MALFORMED,poc_rejected_sale_events:KAFKA_POC_RAW_SALES_REJECTED",
+    "errors.log.include.messages": "true",
+    "tasks.max": "3",
+    "topics": "poc_raw_sale_events,poc_malformed_sale_events,poc_rejected_sale_events",
+    "buffer.flush.time": "10",
+    "errors.deadletterqueue.context.headers.enable": "true",
+    "snowflake.url.name": "dulltfy-gm21866.snowflakecomputing.com",
+    "snowflake.database.name": "DATALAKE",
+    "snowflake.schema.name": "TEST_EVENTS",
+    "snowflake.ingestion.method": "SNOWPIPE_STREAMING",
+    "buffer.count.records": "100",
+    "errors.deadletterqueue.topic.name": "snowflake-sink-dlq",
+    "snowflake.private.key": "",
+    "snowflake.user.name": "KAFKA_USER",
+    "snowflake.role.name": "SYS_KAFKA_ROLE",
+    "value.converter.schemas.enable": "false",
+    "errors.tolerance": "none",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "errors.log.enable": "true",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "enable.single.buffer": "true",
+    "max.client.lag": "1"
   }
+}
