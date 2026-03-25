@@ -359,4 +359,10 @@ docker exec -it broker-1 kafka-console-producer --bootstrap-server broker-1:9092
 docker exec -it broker-1 kafka-console-consumer --bootstrap-server broker-1:9092 --topic poc_transformed_sale_events --from-beginning
 ```
 
+- Run one-command smoke test (produce, verify uppercase output, and validate job remains running):
+```bash
+chmod +x scripts/smoke_test_uppercase.sh
+./scripts/smoke_test_uppercase.sh
+```
+
 ---

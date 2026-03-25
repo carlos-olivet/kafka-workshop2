@@ -1,4 +1,5 @@
 import sys
+import os
 from pyflink.common.typeinfo import Types
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common.watermark_strategy import WatermarkStrategy
@@ -14,23 +15,48 @@ from pyflink.datastream.connectors.kafka import (
 JOB_NAME = "Kafka to Kafka Uppercase Application"
 
 
+def get_env_int(name, default_value):
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default_value
+    try:
+        return int(value)
+    except ValueError:
+        print(f"Invalid integer for {name}: {value}. Using default={default_value}")
+        return default_value
+
+
 def uppercase_and_log(msg):
     return msg.upper()
 
 def main():
-    # Kafka connector jars are already added to /opt/flink/lib in the Flink image.
-    # This app is submitted from the jobmanager container by setup.sh.
+    bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "broker-1:9092")
+    source_topic = os.getenv("KAFKA_SOURCE_TOPIC", "poc_raw_sale_events")
+    sink_topic = os.getenv("KAFKA_SINK_TOPIC", "poc_transformed_sale_events")
+    consumer_group = os.getenv("KAFKA_CONSUMER_GROUP", "uppercase-consumer-group")
+    startup_mode = os.getenv("KAFKA_STARTUP_MODE", "earliest").lower()
+    checkpoint_interval_ms = get_env_int("CHECKPOINT_INTERVAL_MS", 60000)
+    parallelism = get_env_int("FLINK_PARALLELISM", 1)
+    job_name = os.getenv("FLINK_JOB_NAME", JOB_NAME)
+
     # 1. Setup the Environment
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_python_executable("python3")
-    env.set_parallelism(1)
+    env.set_parallelism(parallelism)
+    if checkpoint_interval_ms > 0:
+        env.enable_checkpointing(checkpoint_interval_ms)
+
+    if startup_mode == "latest":
+        starting_offsets = KafkaOffsetsInitializer.latest()
+    else:
+        starting_offsets = KafkaOffsetsInitializer.earliest()
 
     # 2. Define the Kafka Source
     kafka_source = KafkaSource.builder() \
-        .set_bootstrap_servers("broker-1:9092") \
-        .set_topics("poc_raw_sale_events") \
-        .set_group_id("uppercase-consumer-group") \
-        .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
+        .set_bootstrap_servers(bootstrap_servers) \
+        .set_topics(source_topic) \
+        .set_group_id(consumer_group) \
+        .set_starting_offsets(starting_offsets) \
         .set_value_only_deserializer(SimpleStringSchema()) \
         .build()
 
@@ -49,10 +75,10 @@ def main():
 
     # 5. Define the Kafka Sink
     kafka_sink = KafkaSink.builder() \
-        .set_bootstrap_servers("broker-1:9092") \
+        .set_bootstrap_servers(bootstrap_servers) \
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
-                .set_topic("poc_transformed_sale_events")
+                .set_topic(sink_topic)
                 .set_value_serialization_schema(SimpleStringSchema())
                 .build()
         ) \
@@ -62,11 +88,13 @@ def main():
     # 6. Attach Sink & Execute
     uppercase_stream.sink_to(kafka_sink)
 
-    print(f"Starting detached PyFlink job: {JOB_NAME}")
+    print(f"Starting detached PyFlink job: {job_name}")
+    print(f"Kafka bootstrap: {bootstrap_servers}")
+    print(f"Source topic: {source_topic} | Sink topic: {sink_topic}")
     sys.stdout.flush()
     try:
         # execute() is a blocking call. It will run forever until interrupted.
-        env.execute(JOB_NAME)
+        env.execute(job_name)
     except KeyboardInterrupt:
         print("Received shutdown signal.")
         sys.exit(0)
